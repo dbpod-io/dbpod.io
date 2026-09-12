@@ -1,0 +1,47 @@
+---
+import { getCollection, render } from 'astro:content';
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+---
+
+<DocsLayout title={`${entry.data.title} — dbpod`} description={entry.data.description}>
+  <article>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/docs/">Docs</a>
+      <span aria-hidden="true">/</span>
+      <span>{entry.data.title}</span>
+    </nav>
+    <h1>{entry.data.title}</h1>
+    {entry.data.description && <p class="lead">{entry.data.description}</p>}
+    <div class="prose">
+      <Content />
+    </div>
+  </article>
+</DocsLayout>
+
+<style>
+  .breadcrumb {
+    display: flex;
+    gap: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--text-faint);
+    margin-bottom: 1.5rem;
+  }
+
+  .lead {
+    color: var(--text-dim);
+    font-size: 1.0625rem;
+    margin-top: 0;
+  }
+</style>

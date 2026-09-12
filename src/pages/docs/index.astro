@@ -1,0 +1,80 @@
+---
+import { getCollection } from 'astro:content';
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const currentPath = Astro.url.pathname.replace(/\/$/, '');
+---
+
+<DocsLayout title="Documentation — dbpod" description="Guides and reference for dbpod: engines, instances, exec, projects, registry, and extending.">
+  <h1>Documentation</h1>
+  <p class="lead">
+    dbpod manages database engines and instances like Docker manages containers. Start with the
+    quickstart, or dive into a specific subsystem.
+  </p>
+
+  <div class="doc-grid">
+    {
+      docs.map((doc) => (
+        <a
+          class="doc-card"
+          href={`/docs/${doc.id}/`}
+          aria-current={currentPath === `/docs/${doc.id}` ? 'page' : undefined}
+        >
+          <span class="doc-order">{String(doc.data.order).padStart(2, '0')}</span>
+          <span class="doc-title">{doc.data.title}</span>
+          {doc.data.description && <span class="doc-desc">{doc.data.description}</span>}
+        </a>
+      ))
+    }
+  </div>
+</DocsLayout>
+
+<style>
+  .lead {
+    color: var(--text-dim);
+    font-size: 1.0625rem;
+    max-width: 42rem;
+    margin-top: 0;
+  }
+
+  .doc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: 1rem;
+    margin-top: 2.5rem;
+  }
+
+  .doc-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 1.25rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    transition: border-color 0.2s ease;
+  }
+
+  .doc-card:hover {
+    text-decoration: none;
+    border-color: var(--green);
+  }
+
+  .doc-order {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--green);
+  }
+
+  .doc-title {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .doc-desc {
+    color: var(--text-dim);
+    font-size: 0.875rem;
+  }
+</style>

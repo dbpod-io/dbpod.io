@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="0%" r="90%">
+      <stop offset="0%" stop-color="#3ce08f" stop-opacity="0.16"/>
+      <stop offset="60%" stop-color="#3ce08f" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#1e2833" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="gridmask">
+      <rect width="1200" height="630" fill="url(#fade)"/>
+    </mask>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0b0f14"/>
+  <rect width="1200" height="630" fill="url(#grid)" mask="url(#gridmask)" opacity="0.7"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- terminal card -->
+  <g transform="translate(80, 330)">
+    <rect width="440" height="220" rx="14" fill="#101820" stroke="#2e3f4f" stroke-width="1.5"/>
+    <rect x="0" y="0" width="440" height="44" rx="14" fill="#11161d"/>
+    <rect x="0" y="30" width="440" height="14" fill="#11161d"/>
+    <circle cx="24" cy="22" r="7" fill="#ff5f57"/>
+    <circle cx="46" cy="22" r="7" fill="#febc2e"/>
+    <circle cx="68" cy="22" r="7" fill="#28c840"/>
+    <text x="330" y="27" font-family="Menlo, monospace" font-size="14" fill="#5a6f82">dbpod — zsh</text>
+    <text x="24" y="80" font-family="Menlo, monospace" font-size="17"><tspan fill="#3ce08f" font-weight="bold">$ </tspan><tspan fill="#dce5ee">dbpod run --name dev</tspan></text>
+    <text x="24" y="112" font-family="Menlo, monospace" font-size="17"><tspan fill="#3ce08f">✓</tspan><tspan fill="#8da0b3"> dev ready → 127.0.0.1:3306</tspan></text>
+    <text x="24" y="144" font-family="Menlo, monospace" font-size="17"><tspan fill="#3ce08f" font-weight="bold">$ </tspan><tspan fill="#dce5ee">dbpod exec dev</tspan></text>
+    <text x="24" y="176" font-family="Menlo, monospace" font-size="17"><tspan fill="#3ce08f">✓</tspan><tspan fill="#8da0b3"> mysql shell pre-connected</tspan></text>
+    <rect x="226" y="158" width="10" height="18" fill="#3ce08f"/>
+  </g>
+
+  <!-- headline -->
+  <text x="80" y="150" font-family="Menlo, monospace" font-size="26" fill="#3ce08f">&lt;open-source database cli /&gt;</text>
+  <text x="76" y="235" font-family="Menlo, monospace" font-size="64" font-weight="bold" fill="#dce5ee">Databases, managed</text>
+  <text x="76" y="310" font-family="Menlo, monospace" font-size="64" font-weight="bold" fill="#dce5ee">like <tspan fill="#3ce08f">containers</tspan><tspan fill="#3ce08f">▮</tspan></text>
+
+  <!-- footer strip -->
+  <text x="80" y="610" font-family="Menlo, monospace" font-size="20" fill="#5a6f82">dbpod.io  ·  macOS / Linux / Windows</text>
+</svg>
