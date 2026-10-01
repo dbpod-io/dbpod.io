@@ -1,0 +1,875 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+// Engine catalog — the single source of truth, serialized into the DOM and
+// read by the page script (no duplicated script-side copy to keep in sync).
+// Extend by adding an entry; patches are capped at the 6 most recent.
+const engineCatalog = [
+  {
+    id: 'mysql',
+    name: 'MySQL',
+    source: 'builtin',
+    defaultSeries: '8.0',
+    series: [
+      { ref: '26.7', label: '26.7 innovation', patches: ['26.7.0'] },
+      { ref: '9.7', label: '9.7 LTS', patches: ['9.7.2', '9.7.1', '9.7.0'] },
+      { ref: '9.6', label: '9.6 innovation', patches: ['9.6.0'] },
+      { ref: '9.5', label: '9.5 innovation', patches: ['9.5.0'] },
+      { ref: '9.4', label: '9.4 innovation', patches: ['9.4.0'] },
+      { ref: '9.3', label: '9.3 innovation', patches: ['9.3.0'] },
+      { ref: '9.2', label: '9.2 innovation', patches: ['9.2.0'] },
+      { ref: '9.1', label: '9.1 innovation', patches: ['9.1.0'] },
+      { ref: '9.0', label: '9.0 innovation', patches: ['9.0.1'] },
+      { ref: '8.4', label: '8.4 LTS', patches: ['8.4.11', '8.4.10', '8.4.9', '8.4.8', '8.4.7', '8.4.6'] },
+      { ref: '8.3', label: '8.3 innovation', patches: ['8.3.0'] },
+      { ref: '8.2', label: '8.2 innovation', patches: ['8.2.0'] },
+      { ref: '8.1', label: '8.1 innovation', patches: ['8.1.0'] },
+      { ref: '8.0', label: '8.0', patches: ['8.0.46', '8.0.45', '8.0.44', '8.0.43', '8.0.42', '8.0.41'] },
+      { ref: '5.7', label: '5.7', patches: ['5.7.44', '5.7.43', '5.7.42', '5.7.41', '5.7.40', '5.7.39'] },
+    ],
+  },
+  {
+    id: 'postgres',
+    name: 'PostgreSQL',
+    source: 'builtin',
+    defaultSeries: '17',
+    series: [
+      { ref: '18', label: '18', patches: ['18.6', '18.4', '18.3'] },
+      { ref: '17', label: '17', patches: ['17.11', '17.10', '17.9'] },
+      { ref: '16', label: '16', patches: ['16.15', '16.14', '16.13'] },
+      { ref: '15', label: '15', patches: ['15.19', '15.18', '15.17'] },
+      { ref: '14', label: '14', patches: ['14.24', '14.23', '14.22'] },
+      { ref: '13', label: '13', patches: ['13.23'] },
+    ],
+  },
+];
+
+const flagDocs = [
+  { flag: '--engine <engine>@<version>', env: 'DBPOD_ENGINES', note: 'also install a database engine (repeatable)' },
+  { flag: '--version <v>', env: 'DBPOD_VERSION', note: 'pin the dbpod CLI version (default: latest)' },
+  { flag: '--install-dir <dir>', env: 'DBPOD_INSTALL_DIR', note: 'install location (default: ~/.local/bin)' },
+];
+---
+
+<BaseLayout
+  title="dbpod — install builder"
+  description="Build a one-shot dbpod install command for your platform, with optional database engines pinned by version."
+>
+  <section class="install-hero">
+    <p class="eyebrow" data-hero>&lt;install builder /&gt;</p>
+    <h1 data-hero>Build your install command</h1>
+    <p class="lead" data-hero>
+      Pick a platform, optionally preinstall database engines, copy one line. No root, no system
+      services.
+    </p>
+  </section>
+
+  <section class="builder" data-reveal>
+    <!-- step 1: platform -->
+    <div class="step">
+      <h2 class="step-title"><span class="step-num">1</span>platform</h2>
+      <div class="tabs" role="tablist" aria-label="Operating system" id="platform-tabs">
+        <button class="tab is-active" data-os="unix" type="button" role="tab" aria-selected="true">
+          macOS / Linux
+        </button>
+        <button class="tab" data-os="windows" type="button" role="tab" aria-selected="false">
+          Windows
+        </button>
+      </div>
+      <p class="tab-hint" id="tab-hint" hidden>
+        On Windows, PowerShell, cmd and WSL all work — pick whichever you run.
+      </p>
+    </div>
+
+    <!-- step 2: engines -->
+    <div class="step">
+      <h2 class="step-title">
+        <span class="step-num">2</span>engines <em class="opt-mark">optional</em>
+      </h2>
+      <div id="engine-rows" class="engine-rows" data-catalog={JSON.stringify(engineCatalog)}></div>
+      <div class="engine-actions">
+        <button id="add-engine" class="add-btn" type="button">+ add engine</button>
+        <span class="empty-hint" id="empty-hint" hidden>no engines selected — CLI only</span>
+      </div>
+      <p class="ext-note">
+        Versions resolve like Docker tags: a <strong>series</strong> (<code>mysql@8.0</code>)
+        installs the latest known patch, an <strong>exact version</strong>
+        (<code>mysql@8.0.41</code>) pins it for reproducibility. MariaDB, Percona Server, MongoDB
+        and more come from the <a href="/docs/registry/">registry</a> — add them with
+        <code>dbpod registry add</code> after setup.
+      </p>
+
+      <div class="advanced">
+        <label class="opt">
+          CLI version
+          <input id="opt-version" placeholder="latest" spellcheck="false" autocomplete="off" />
+        </label>
+        <label class="opt">
+          install dir
+          <input id="opt-dir" placeholder="~/.local/bin" spellcheck="false" autocomplete="off" />
+        </label>
+      </div>
+    </div>
+
+    <!-- step 3: command -->
+    <div class="step">
+      <h2 class="step-title"><span class="step-num">3</span>command</h2>
+      <div class="cmd-box" id="rows-unix">
+        <div class="cmd-row">
+          <span class="cmd-tag">sh</span>
+          <code id="cmd-unix"></code>
+          <button class="copy-btn" type="button" aria-label="Copy install command">copy</button>
+        </div>
+      </div>
+      <div class="cmd-box" id="rows-win" hidden>
+        <div class="cmd-row">
+          <span class="cmd-tag">PowerShell</span>
+          <code id="cmd-ps"></code>
+          <button class="copy-btn" type="button" aria-label="Copy PowerShell install command">copy</button>
+        </div>
+        <div class="cmd-row">
+          <span class="cmd-tag">cmd</span>
+          <code id="cmd-cmd"></code>
+          <button class="copy-btn" type="button" aria-label="Copy cmd install command">copy</button>
+        </div>
+        <div class="cmd-row">
+          <span class="cmd-tag">WSL</span>
+          <code id="cmd-wsl"></code>
+          <button class="copy-btn" type="button" aria-label="Copy WSL install command">copy</button>
+        </div>
+      </div>
+      <p class="after-note">
+        After it finishes, verify with <code>dbpod version</code>. Engines are cached under
+        <code>DBPOD_HOME/versions</code> and shared across projects.
+      </p>
+    </div>
+  </section>
+
+  <!-- reference -->
+  <section class="reference" data-reveal>
+    <h2 class="ref-title">flags &amp; environment</h2>
+    <div class="ref-table">
+      <div class="ref-head" aria-hidden="true">
+        <span>flag</span>
+        <span>env equivalent</span>
+        <span>what it does</span>
+      </div>
+      {
+        flagDocs.map((f) => (
+          <div class="ref-row">
+            <code class="ref-flag">{f.flag}</code>
+            <code class="ref-env">{f.env}</code>
+            <span class="ref-note">{f.note}</span>
+          </div>
+        ))
+      }
+    </div>
+    <p class="ref-more">
+      Full details in the <a href="/docs/quickstart/">quickstart</a> — or ask the installer itself:
+      <code>sh -s -- --help</code>.
+    </p>
+  </section>
+</BaseLayout>
+
+<style>
+  .install-hero {
+    padding: 4rem 0 2.5rem;
+    max-width: 46rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--green);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(1.75rem, 4.5vw, 2.75rem);
+    letter-spacing: -0.03em;
+    margin: 0;
+    line-height: 1.1;
+  }
+
+  .lead {
+    color: var(--text-dim);
+    font-size: 1.0625rem;
+    margin: 1rem 0 0;
+    max-width: 38rem;
+  }
+
+  /* ================= BUILDER ================= */
+  .builder {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .step-title {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0 0 1rem;
+  }
+
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.375rem;
+    height: 1.375rem;
+    border: 1px solid var(--green);
+    border-radius: 50%;
+    color: var(--green);
+    font-size: 0.6875rem;
+  }
+
+  .opt-mark {
+    color: var(--text-faint);
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: 0.02em;
+  }
+
+  /* --- platform tabs --- */
+  .tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.25rem;
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .tab {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--text-faint);
+    background: transparent;
+    border: none;
+    border-radius: 0.25rem;
+    padding: 0.4375rem 0.875rem;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .tab:hover {
+    color: var(--text-dim);
+  }
+
+  .tab.is-active {
+    color: var(--green);
+    background: var(--bg-raise);
+  }
+
+  .tab-hint {
+    color: var(--text-faint);
+    font-size: 0.8125rem;
+    margin: 0.625rem 0 0;
+  }
+
+  /* --- engine rows ---
+     rows and their controls are created at runtime (no astro scope attr),
+     so their styles live in the is:global block below */
+  .engine-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .engine-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.75rem;
+  }
+
+  .add-btn {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--green);
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: 0.375rem;
+    padding: 0.4375rem 0.875rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+
+  .add-btn:hover {
+    border-color: var(--green);
+  }
+
+  .empty-hint {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--text-faint);
+  }
+
+  .ext-note {
+    color: var(--text-faint);
+    font-size: 0.8125rem;
+    margin: 1rem 0 0;
+    max-width: 44rem;
+  }
+
+  .ext-note strong {
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  .ext-note code {
+    color: var(--amber);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.1em 0.4em;
+    font-family: var(--mono);
+    font-size: 0.875em;
+  }
+
+  .ext-note a {
+    color: var(--text-dim);
+    text-decoration: underline;
+  }
+
+  /* --- advanced options --- */
+  .advanced {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px dashed var(--border);
+  }
+
+  .opt {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .opt input {
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    color: var(--text);
+    background: var(--bg-code);
+    border: 1px solid var(--border-strong);
+    border-radius: 0.375rem;
+    padding: 0.4375rem 0.625rem;
+    width: 14rem;
+    max-width: 100%;
+  }
+
+  .opt input:focus-visible {
+    outline: 1px solid var(--green);
+    outline-offset: 1px;
+  }
+
+  .opt input.is-invalid {
+    border-color: #ff5f57;
+  }
+
+  /* --- command rows --- */
+  .cmd-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--bg-code);
+    border: 1px solid var(--border-strong);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-family: var(--mono);
+    font-size: clamp(0.8125rem, 2.5vw, 0.9375rem);
+  }
+
+  .cmd-tag {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    min-width: 5.25rem;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .cmd-row code {
+    color: var(--text);
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    flex: 1;
+  }
+
+  .after-note {
+    color: var(--text-faint);
+    font-size: 0.8125rem;
+    margin: 1rem 0 0;
+  }
+
+  .after-note code {
+    color: var(--text-dim);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.1em 0.4em;
+    font-family: var(--mono);
+    font-size: 0.875em;
+  }
+
+  /* ================= REFERENCE ================= */
+  .reference {
+    margin-top: 3rem;
+  }
+
+  .ref-title {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    margin: 0 0 1rem;
+  }
+
+  .ref-table {
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: var(--bg-panel);
+  }
+
+  .ref-head,
+  .ref-row {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1.2fr) minmax(11rem, 1fr) 2fr;
+    gap: 1.5rem;
+    align-items: center;
+    padding: 0.875rem 1.5rem;
+  }
+
+  .ref-head {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    background: var(--bg-raise);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ref-row + .ref-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .ref-flag {
+    color: var(--green);
+    font-size: 0.875rem;
+  }
+
+  .ref-env {
+    color: var(--amber);
+    font-size: 0.875rem;
+  }
+
+  .ref-note {
+    color: var(--text-dim);
+    font-size: 0.9375rem;
+  }
+
+  .ref-more {
+    color: var(--text-faint);
+    font-size: 0.875rem;
+    margin-top: 1.25rem;
+  }
+
+  .ref-more a {
+    color: var(--text-dim);
+    text-decoration: underline;
+  }
+
+  .ref-more code {
+    color: var(--amber);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.1em 0.4em;
+    font-family: var(--mono);
+  }
+
+  /* ================= COPY BUTTON ================= */
+  .copy-btn {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .copy-btn:hover,
+  .copy-btn.copied {
+    color: var(--green);
+    border-color: var(--green);
+  }
+
+  /* ================= RESPONSIVE ================= */
+  @media (max-width: 56rem) {
+    .ref-head {
+      display: none;
+    }
+
+    .ref-row {
+      grid-template-columns: 1fr;
+      gap: 0.25rem;
+      padding: 1rem 1.25rem;
+    }
+
+    .builder {
+      padding: 1.5rem;
+    }
+
+    .cmd-tag {
+      min-width: 0;
+    }
+  }
+</style>
+
+<!-- engine rows are built at runtime, so Astro scoping can't reach them:
+     these selectors are intentionally page-namespaced -->
+<style is:global>
+  .engine-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    flex-wrap: wrap;
+  }
+
+  .engine-row select {
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    color: var(--amber);
+    background: var(--bg-code);
+    border: 1px solid var(--border-strong);
+    border-radius: 0.375rem;
+    padding: 0.4375rem 1.875rem 0.4375rem 0.625rem;
+    cursor: pointer;
+  }
+
+  .engine-row select:hover {
+    border-color: var(--green);
+  }
+
+  .engine-row select:focus-visible {
+    outline: 1px solid var(--green);
+    outline-offset: 1px;
+  }
+
+  .er-remove {
+    font-family: var(--mono);
+    font-size: 1rem;
+    line-height: 1;
+    color: var(--text-faint);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    width: 2rem;
+    height: 2rem;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .er-remove:hover {
+    color: #ff5f57;
+    border-color: #ff5f57;
+  }
+</style>
+
+<script>
+  import { gsap } from 'gsap';
+  import { ScrollTrigger } from 'gsap/ScrollTrigger';
+
+  gsap.registerPlugin(ScrollTrigger);
+
+  /* ---------------------------------------------------------------
+   * Catalog — serialized from the frontmatter into data-catalog
+   * ---------------------------------------------------------------- */
+  interface Series {
+    ref: string;
+    label: string;
+    patches: string[];
+  }
+  interface EngineDef {
+    id: string;
+    name: string;
+    source: string;
+    defaultSeries: string;
+    series: Series[];
+  }
+  const catalog: EngineDef[] = JSON.parse(
+    document.getElementById('engine-rows')!.dataset.catalog!,
+  );
+  const byId = new Map(catalog.map((e) => [e.id, e]));
+
+  /* ---------------------------------------------------------------
+   * Engine rows — dynamic list, one --engine per row
+   * ---------------------------------------------------------------- */
+  const engineRowsEl = document.getElementById('engine-rows')!;
+  const emptyHint = document.getElementById('empty-hint')!;
+  const addBtn = document.getElementById('add-engine')!;
+  const versionInput = document.getElementById('opt-version') as HTMLInputElement;
+  const dirInput = document.getElementById('opt-dir') as HTMLInputElement;
+
+  const SAFE_VALUE = /^[\w./:@~-]+$/; // values land in a shell command — keep them tame
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function versionOptions(engine: EngineDef): string {
+    const seriesOpts = engine.series
+      .map((s) => `<option value="${s.ref}">${s.label} — latest ${s.patches[0]}</option>`)
+      .join('');
+    const patchOpts = engine.series
+      .flatMap((s) => s.patches)
+      .map((p) => `<option value="${p}">${p}</option>`)
+      .join('');
+    return (
+      `<optgroup label="series — resolves to latest patch">${seriesOpts}</optgroup>` +
+      `<optgroup label="exact versions">${patchOpts}</optgroup>`
+    );
+  }
+
+  function addEngineRow(engineId = 'mysql', version?: string) {
+    const engine = byId.get(engineId)!;
+    const row = document.createElement('div');
+    row.className = 'engine-row';
+    row.innerHTML = `
+      <select class="er-engine" aria-label="Engine">
+        ${catalog.map((e) => `<option value="${e.id}"${e.id === engineId ? ' selected' : ''}>${e.name}</option>`).join('')}
+      </select>
+      <select class="er-version" aria-label="Version">${versionOptions(engine)}</select>
+      <button class="er-remove" type="button" aria-label="Remove this engine">×</button>`;
+    const engineSel = row.querySelector<HTMLSelectElement>('.er-engine')!;
+    const versionSel = row.querySelector<HTMLSelectElement>('.er-version')!;
+    versionSel.value = version ?? engine.series.find((s) => s.ref === engine.defaultSeries)!.ref;
+    engineSel.addEventListener('change', () => {
+      const next = byId.get(engineSel.value)!;
+      versionSel.innerHTML = versionOptions(next);
+      versionSel.value = next.series.find((s) => s.ref === next.defaultSeries)!.ref;
+      render(activeOs);
+    });
+    versionSel.addEventListener('change', () => render(activeOs));
+    row.querySelector('.er-remove')!.addEventListener('click', () => {
+      row.remove();
+      syncEmptyHint();
+      render(activeOs);
+    });
+    engineRowsEl.appendChild(row);
+    syncEmptyHint();
+    if (!reduceMotion) gsap.from(row, { autoAlpha: 0, y: -4, duration: 0.22, ease: 'power1.out' });
+    render(activeOs);
+  }
+
+  function syncEmptyHint() {
+    emptyHint.hidden = engineRowsEl.children.length > 0;
+  }
+
+  addBtn.addEventListener('click', () => addEngineRow());
+
+  function selectedEngines(): { id: string; version: string }[] {
+    return [...engineRowsEl.querySelectorAll<HTMLElement>('.engine-row')].map((row) => ({
+      id: row.querySelector<HTMLSelectElement>('.er-engine')!.value,
+      version: row.querySelector<HTMLSelectElement>('.er-version')!.value,
+    }));
+  }
+
+  function buildShFlags(): string {
+    const parts = selectedEngines().map((e) => `--engine ${e.id}@${e.version}`);
+    const v = versionInput.value.trim();
+    const d = dirInput.value.trim();
+    if (v && SAFE_VALUE.test(v) && v !== 'latest') parts.push(`--version ${v}`);
+    if (d && SAFE_VALUE.test(d) && d !== '~/.local/bin') parts.push(`--install-dir ${d}`);
+    return parts.join(' ');
+  }
+
+  function buildPsFlags(): string {
+    const parts = selectedEngines().flatMap((e) => [`-Engine`, `${e.id}@${e.version}`]);
+    const v = versionInput.value.trim();
+    const d = dirInput.value.trim();
+    if (v && SAFE_VALUE.test(v) && v !== 'latest') parts.push(`-Version`, v);
+    if (d && SAFE_VALUE.test(d) && d !== '~/.local/bin') parts.push(`-InstallDir`, d);
+    return parts.join(' ');
+  }
+
+  /* ---------------------------------------------------------------
+   * Platform tabs — unix shows the sh row, windows shows all three
+   * ---------------------------------------------------------------- */
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('#platform-tabs .tab')];
+  const tabHint = document.getElementById('tab-hint')!;
+  const rowsUnix = document.getElementById('rows-unix')!;
+  const rowsWin = document.getElementById('rows-win')!;
+  const cmdEls = {
+    unix: document.getElementById('cmd-unix')!,
+    ps: document.getElementById('cmd-ps')!,
+    cmd: document.getElementById('cmd-cmd')!,
+    wsl: document.getElementById('cmd-wsl')!,
+  };
+
+  type Os = 'unix' | 'windows';
+  let activeOs: Os = /Win/i.test(navigator.userAgent) ? 'windows' : 'unix';
+
+  function setActiveTab(tab: HTMLButtonElement) {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.classList.toggle('is-active', on);
+      t.setAttribute('aria-selected', String(on));
+    }
+  }
+
+  function render(selected: Os) {
+    const shFlags = buildShFlags();
+    const psFlags = buildPsFlags();
+    const unix = shFlags
+      ? `curl -fsSL https://dbpod.io/install.sh | sh -s -- ${shFlags}`
+      : 'curl -fsSL https://dbpod.io/install.sh | sh';
+    cmdEls.unix.textContent = unix;
+    cmdEls.wsl.textContent = unix; // WSL is Linux — same installer
+    cmdEls.ps.textContent = psFlags
+      ? `& ([scriptblock]::Create((irm https://dbpod.io/install.ps1))) ${psFlags}`
+      : 'irm https://dbpod.io/install.ps1 | iex';
+    cmdEls.cmd.textContent =
+      `curl -fsSL https://dbpod.io/install.bat -o "%TEMP%\\dbpod-install.bat" && ` +
+      `call "%TEMP%\\dbpod-install.bat"${shFlags ? ` ${shFlags}` : ''}`;
+
+    const showUnix = selected === 'unix';
+    const changes = rowsUnix.hidden !== showUnix || rowsWin.hidden !== showUnix;
+    rowsUnix.hidden = !showUnix;
+    rowsWin.hidden = showUnix;
+    tabHint.hidden = showUnix; // hint only matters on Windows
+    if (changes && !reduceMotion) {
+      const target = showUnix ? rowsUnix : rowsWin;
+      gsap.fromTo(
+        target,
+        { autoAlpha: 0, y: 6 },
+        { autoAlpha: 1, y: 0, duration: 0.28, ease: 'power1.out' },
+      );
+    }
+  }
+
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      setActiveTab(tab);
+      activeOs = tab.dataset.os as Os;
+      render(activeOs);
+    });
+  }
+
+  /* ---------------------------------------------------------------
+   * Advanced option inputs
+   * ---------------------------------------------------------------- */
+  const markValidity = (input: HTMLInputElement) => {
+    const v = input.value.trim();
+    input.classList.toggle('is-invalid', v !== '' && !SAFE_VALUE.test(v));
+  };
+  for (const input of [versionInput, dirInput]) {
+    input.addEventListener('input', () => {
+      markValidity(input);
+      render(activeOs);
+    });
+  }
+
+  /* ---------------------------------------------------------------
+   * Copy buttons
+   * ---------------------------------------------------------------- */
+  for (const copyBtn of document.querySelectorAll<HTMLButtonElement>('.copy-btn')) {
+    copyBtn.addEventListener('click', async () => {
+      const code = copyBtn.parentElement?.querySelector('code');
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? '');
+        copyBtn.textContent = 'copied';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.textContent = 'copy';
+          copyBtn.classList.remove('copied');
+        }, 1600);
+      } catch {
+        // clipboard unavailable (e.g. http) — leave the command selectable
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------
+   * Init — default tab by UA, one mysql row to show the mechanic
+   * ---------------------------------------------------------------- */
+  setActiveTab(tabs.find((t) => t.dataset.os === activeOs) ?? tabs[0]);
+  addEngineRow('mysql');
+  render(activeOs);
+
+  /* ---------------------------------------------------------------
+   * Motion — entrance + scroll reveal, honoring prefers-reduced-motion
+   * ---------------------------------------------------------------- */
+  const mm = gsap.matchMedia();
+  mm.add(
+    {
+      motionOK: '(prefers-reduced-motion: no-preference)',
+      reduced: '(prefers-reduced-motion: reduce)',
+    },
+    (ctx) => {
+      const { motionOK, reduced } = ctx.conditions;
+      if (reduced || !motionOK) {
+        gsap.set('[data-hero], [data-reveal]', { clearProps: 'all' });
+        return;
+      }
+
+      gsap
+        .timeline({ defaults: { ease: 'power3.out', duration: 0.6 } })
+        .from('[data-hero]', { y: 22, autoAlpha: 0, stagger: 0.09 }, 0.1);
+
+      gsap.utils.toArray<HTMLElement>('[data-reveal]').forEach((el) => {
+        gsap.from(el, {
+          y: 24,
+          autoAlpha: 0,
+          duration: 0.6,
+          ease: 'power3.out',
+          scrollTrigger: { trigger: el, start: 'top 88%', once: true },
+        });
+      });
+    },
+  );
+</script>

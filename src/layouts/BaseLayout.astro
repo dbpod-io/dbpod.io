@@ -47,6 +47,7 @@ const ogImage = new URL('/og.png', Astro.site);
       <nav class="container" aria-label="Main">
         <a href="/" class="brand" aria-label="dbpod home">dbpod<span class="cursor" aria-hidden="true"></span></a>
         <div class="nav-links">
+          <a href="/install/" class={Astro.url.pathname.startsWith('/install') ? 'active' : ''}>Install</a>
           <a href="/docs/" class={Astro.url.pathname.startsWith('/docs') ? 'active' : ''}>Docs</a>
           <a href="https://github.com/dbpod-io/dbpod" target="_blank" rel="noopener noreferrer">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -79,6 +80,7 @@ const ogImage = new URL('/og.png', Astro.site);
         <nav class="footer-col" aria-label="Site">
           <h3>Site</h3>
           <a href="/">Home</a>
+          <a href="/install/">Install builder</a>
           <a href="/docs/">Documentation</a>
           <a href="/install.sh">install.sh</a>
         </nav>

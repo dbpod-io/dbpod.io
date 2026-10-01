@@ -12,12 +12,52 @@ One command, no root, no system services:
 curl -fsSL https://dbpod.io/install.sh | sh
 ```
 
+On Windows (PowerShell):
+
+```powershell
+irm https://dbpod.io/install.ps1 | iex
+```
+
+Or plain cmd, no PowerShell needed (curl and tar are bundled with Windows 10+):
+
+```bat
+curl -fsSL https://dbpod.io/install.bat -o "%TEMP%\dbpod-install.bat" && call "%TEMP%\dbpod-install.bat"
+```
+
 The script detects your platform (macOS, Linux, or Windows) and downloads the matching single
-binary from [GitHub Releases](https://github.com/dbpod-io/dbpod/releases). Verify it:
+binary from [GitHub Releases](https://github.com/dbpod-io/dbpod/releases), verifying it against
+the published checksums. Verify it:
 
 ```bash
-dbpod --version
+dbpod version
 ```
+
+### One-shot install with a database
+
+To install the CLI and a database engine in a single command, pass `--engine`:
+
+```bash
+curl -fsSL https://dbpod.io/install.sh | sh -s -- --engine mysql@8.0
+```
+
+This installs dbpod, then immediately runs `dbpod engine install mysql@8.0` for you — the
+engine is cached and ready before you type anything else. Repeat `--engine` (or use
+`DBPOD_ENGINES="mysql@8.0 postgres@17"`) for multiple engines:
+
+```bash
+curl -fsSL https://dbpod.io/install.sh | sh -s -- --engine mysql@8.0 --engine postgres@17
+```
+
+The same works from cmd:
+
+```bat
+curl -fsSL https://dbpod.io/install.bat -o "%TEMP%\dbpod-install.bat" && call "%TEMP%\dbpod-install.bat" --engine mysql@8.0
+```
+
+Other options: `--version vX.Y.Z` pins the CLI version, `--install-dir` overrides the install
+location (default `~/.local/bin`). See all of them with `sh -s -- --help`. Prefer a guided
+setup? The [install builder](/install/) generates the one-shot command for your platform and
+engines.
 
 ## Install an engine
 
