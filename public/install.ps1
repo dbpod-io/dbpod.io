@@ -31,6 +31,30 @@ $Releases = "https://github.com/$Repo/releases"
 function log($msg) { Write-Host "info: $msg" }
 function fail($msg) { Write-Host "error: $msg" -ForegroundColor Red; exit 1 }
 
+# download with retries; transient network errors get 5 attempts with
+# backoff, 404s fail fast. Honors HTTPS_PROXY like curl does (PS 5.1's
+# Invoke-WebRequest ignores the env var on its own).
+function Fetch($url, $out) {
+  $proxy = $env:HTTPS_PROXY
+  if (-not $proxy) { $proxy = $env:https_proxy }
+  $waits = @(0, 2, 4, 8, 16)
+  for ($i = 1; $i -le 5; $i++) {
+    try {
+      if ($proxy) {
+        Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -Proxy $proxy -ErrorAction Stop
+      } else {
+        Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -ErrorAction Stop
+      }
+      return $true
+    } catch {
+      $sc = $_.Exception.Response.StatusCode.value__
+      if ($sc -eq 404 -or $i -eq 5) { return $false }
+      log "download attempt $i failed, retrying in $($waits[$i])s ..."
+      Start-Sleep -Seconds $waits[$i]
+    }
+  }
+}
+
 # --- options (env-var fallbacks for the irm | iex form) --------------------
 if (-not $Version) { $Version = $env:DBPOD_VERSION }
 if (-not $Version) { $Version = 'latest' }
@@ -61,30 +85,36 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
   log "downloading $asset ..."
   $zipPath = Join-Path $tmp $asset
-  try {
-    Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $zipPath -UseBasicParsing
-  } catch {
+  if (-not (Fetch "$baseUrl/$asset" $zipPath)) {
     fail "download failed: $baseUrl/$asset"
   }
 
   # --- verify checksum -----------------------------------------------------
-  try {
-    Invoke-WebRequest -Uri "$baseUrl/checksums.txt" -OutFile (Join-Path $tmp 'checksums.txt') -UseBasicParsing
+  if (Fetch "$baseUrl/checksums.txt" (Join-Path $tmp 'checksums.txt')) {
     $line = Get-Content (Join-Path $tmp 'checksums.txt') |
       Where-Object { $_ -match '^\s*([0-9a-fA-F]{64})\s+(\S+)\s*$' -and $Matches[2] -eq $asset } |
       Select-Object -First 1
     if (-not $line) { fail "checksum for $asset not found in checksums.txt" }
     $want = ($line -split '\s+')[0].ToLower()
-    $got = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+    # .NET directly - Get-FileHash needs module autoloading, which breaks in
+    # environments with a polluted PSModulePath
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+      $got = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($zipPath))).Replace('-', '').ToLower()
+    } finally {
+      $sha.Dispose()
+    }
     if ($got -ne $want) { fail "checksum mismatch for ${asset}: got $got, want $want" }
     log "checksum ok ($got)"
-  } catch [System.Exception] {
-    if ($_.Exception.Message -like 'checksum*') { throw }
+  } else {
     log 'checksums.txt unavailable; skipping checksum verification'
   }
 
   # --- install -------------------------------------------------------------
-  Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
+  # .NET extraction - Expand-Archive needs module autoloading, which breaks
+  # in environments with a polluted PSModulePath
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tmp)
   $exe = Join-Path $tmp 'dbpod.exe'
   if (-not (Test-Path $exe)) {
     throw 'archive did not contain a dbpod.exe binary - asset layout mismatch?'

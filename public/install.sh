@@ -119,9 +119,10 @@ fi
 
 # --- download helpers ------------------------------------------------------
 if command -v curl >/dev/null 2>&1; then
-  fetch() { curl -fsSL "$1" -o "$2"; }
+  # retries cover transient network errors; 404s still fail fast
+  fetch() { curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused "$1" -o "$2"; }
 elif command -v wget >/dev/null 2>&1; then
-  fetch() { wget -qO "$2" "$1"; }
+  fetch() { wget -qO "$2" --tries=3 --waitretry=2 "$1"; }
 else
   err "need curl or wget to download"
 fi
@@ -140,7 +141,7 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 log "downloading ${asset} ..."
-fetch "${base_url}/${asset}" "${tmp_dir}/${asset}" || err "download failed: ${base_url}/${asset}"
+fetch "${base_url}/${asset}" "${tmp_dir}/${asset}" || err "download failed: ${base_url}/${asset} (if you need a proxy, set HTTPS_PROXY)"
 
 # --- verify checksum -------------------------------------------------------
 got=""

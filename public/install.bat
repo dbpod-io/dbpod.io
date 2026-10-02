@@ -84,36 +84,54 @@ mkdir "%TMPDIR%" || exit /b 1
 set "ASSET_PATH=%TMPDIR%\%ASSET%"
 
 echo info: downloading %ASSET% ...
+set /a TRY=0
+:dl_asset
+set /a TRY+=1
 curl -fsSL "%BASE%/%ASSET%" -o "%ASSET_PATH%"
-if errorlevel 1 (
+if not errorlevel 1 goto dl_asset_ok
+if %TRY% geq 5 (
   echo error: download failed: %BASE%/%ASSET% 1>&2
+  echo hint: if you need a proxy, set HTTPS_PROXY before running 1>&2
   goto cleanup_fail
 )
+echo info: download failed, retrying ...
+ping -n 3 127.0.0.1 >nul
+goto dl_asset
+:dl_asset_ok
 
 rem --- verify checksum -----------------------------------------------------
 set "WANT="
+set /a TRY=0
+:dl_sum
+set /a TRY+=1
 curl -fsSL "%BASE%/checksums.txt" -o "%TMPDIR%\checksums.txt"
-if errorlevel 1 (
-  echo info: checksums.txt unavailable, skipping checksum verification
-) else (
-  for /f "usebackq tokens=1,2" %%a in ("%TMPDIR%\checksums.txt") do (
-    if /i "%%b"=="%ASSET%" set "WANT=%%a"
-  )
-  if not defined WANT (
-    echo error: checksum for %ASSET% not found in checksums.txt 1>&2
-    goto cleanup_fail
-  )
-  set "GOT="
-  for /f "skip=1 tokens=1" %%h in ('certutil -hashfile "%ASSET_PATH%" SHA256') do if not defined GOT set "GOT=%%h"
-  if /i not "!GOT!"=="!WANT!" (
-    echo error: checksum mismatch for %ASSET%: got !GOT!, want !WANT! 1>&2
-    goto cleanup_fail
-  )
-  echo info: checksum ok
+if not errorlevel 1 goto dl_sum_ok
+if %TRY% lss 3 (
+  ping -n 3 127.0.0.1 >nul
+  goto dl_sum
 )
+echo info: checksums.txt unavailable, skipping checksum verification
+goto dl_verify_done
+:dl_sum_ok
+for /f "usebackq tokens=1,2" %%a in ("%TMPDIR%\checksums.txt") do (
+  if /i "%%b"=="%ASSET%" set "WANT=%%a"
+)
+if not defined WANT (
+  echo error: checksum for %ASSET% not found in checksums.txt 1>&2
+  goto cleanup_fail
+)
+set "GOT="
+for /f "skip=1 tokens=1" %%h in ('certutil -hashfile "%ASSET_PATH%" SHA256') do if not defined GOT set "GOT=%%h"
+if /i not "!GOT!"=="!WANT!" (
+  echo error: checksum mismatch for %ASSET%: got !GOT!, want !WANT! 1>&2
+  goto cleanup_fail
+)
+echo info: checksum ok
+:dl_verify_done
 
 rem --- install ---------------------------------------------------------------
-tar -xf "%ASSET_PATH%" -C "%TMPDIR%"
+rem pin System32 bsdtar: a GNU tar earlier in PATH would treat C:\ as a host
+"%SystemRoot%\System32\tar.exe" -xf "%ASSET_PATH%" -C "%TMPDIR%"
 if errorlevel 1 (
   echo error: extraction failed - tar.exe is bundled with Windows 10 1803+ 1>&2
   goto cleanup_fail
