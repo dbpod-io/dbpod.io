@@ -32,6 +32,27 @@ the published checksums. Verify it:
 dbpod version
 ```
 
+### GitHub not reachable?
+
+On networks where github.com cannot be reached, the installers automatically fall back to the
+`https://dl.dbpod.io` mirror. To pin a different source yourself (for example a release proxy),
+set `DBPOD_DOWNLOAD_BASE` — it takes the GitHub Releases URL of any mirror that serves the same
+layout:
+
+```bash
+curl -fsSL https://dbpod.io/install.sh | DBPOD_DOWNLOAD_BASE="https://mirror.ghproxy.com/https://github.com/dbpod-io/dbpod/releases" sh
+```
+
+The built-in fallback (`https://dl.dbpod.io`, a CI-synced mirror of the GitHub releases) can be
+pinned the same way and needs no third-party proxy.
+
+A plain proxy also works, without changing the source: `export HTTPS_PROXY=http://127.0.0.1:7890`
+(or `set HTTPS_PROXY=...` on Windows). The same env vars are honored by `install.ps1` and
+`install.bat`.
+
+Re-running an installer upgrades in place — an existing binary is simply replaced, on Windows
+even while an older dbpod process is still running.
+
 ### One-shot install with a database
 
 To install the CLI and a database engine in a single command, pass `--engine`:

@@ -7,7 +7,8 @@ rem
 rem CLI + database engine(s) in one shot:
 rem   ... && call "%TEMP%\dbpod-install.bat" --engine mysql@8.0 --engine postgres@17
 rem
-rem Env vars: DBPOD_VERSION, DBPOD_ENGINES (space or comma separated), DBPOD_INSTALL_DIR
+rem Env vars: DBPOD_VERSION, DBPOD_ENGINES (space or comma separated), DBPOD_INSTALL_DIR,
+rem DBPOD_DOWNLOAD_BASE (replace the GitHub download base with a mirror URL)
 rem Requires curl.exe and tar.exe, both bundled with Windows 10 1803+.
 
 setlocal EnableDelayedExpansion
@@ -15,6 +16,7 @@ setlocal EnableDelayedExpansion
 set "REPO=dbpod-io/dbpod"
 set "BIN_NAME=dbpod.exe"
 set "RELEASES=https://github.com/%REPO%/releases"
+set "MIRROR=https://dl.dbpod.io"
 
 rem --- options -----------------------------------------------------------
 set "VERSION=%DBPOD_VERSION%"
@@ -75,36 +77,38 @@ set "ARCH=amd64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "ARCH=arm64"
 set "ASSET=dbpod-windows-%ARCH%.zip"
 
-if "%VERSION%"=="latest" ( set "BASE=%RELEASES%/latest/download" ) else set "BASE=%RELEASES%/download/%VERSION%"
-
 curl.exe --version >nul 2>&1 || ( echo error: curl.exe not found - bundled with Windows 10 1803+ 1>&2 & exit /b 1 )
 
 set "TMPDIR=%TEMP%\dbpod-install-%RANDOM%%RANDOM%"
 mkdir "%TMPDIR%" || exit /b 1
 set "ASSET_PATH=%TMPDIR%\%ASSET%"
 
+rem --- download (sources tried in order; the download attempt itself is the
+rem network probe - release assets come from a different CDN than the
+rem github.com page, so no separate reachability check) ----------------------
+rem DBPOD_DOWNLOAD_BASE pins one GitHub-layout source and disables the fallback
+if defined DBPOD_DOWNLOAD_BASE ( set "SRC1=%DBPOD_DOWNLOAD_BASE%" ) else set "SRC1=%RELEASES%"
 echo info: downloading %ASSET% ...
-set /a TRY=0
-:dl_asset
-set /a TRY+=1
-curl -fsSL "%BASE%/%ASSET%" -o "%ASSET_PATH%"
-if not errorlevel 1 goto dl_asset_ok
-if %TRY% geq 5 (
-  echo error: download failed: %BASE%/%ASSET% 1>&2
-  echo hint: if you need a proxy, set HTTPS_PROXY before running 1>&2
-  goto cleanup_fail
-)
-echo info: download failed, retrying ...
-ping -n 3 127.0.0.1 >nul
-goto dl_asset
-:dl_asset_ok
+call :try_source "%SRC1%" 1 "%ASSET%" "%ASSET_PATH%"
+if not errorlevel 1 goto dl_ok
+if defined DBPOD_DOWNLOAD_BASE goto dl_all_failed
+call :try_source "%MIRROR%" 0 "%ASSET%" "%ASSET_PATH%"
+if not errorlevel 1 goto dl_ok
+goto dl_all_failed
 
-rem --- verify checksum -----------------------------------------------------
+:dl_all_failed
+echo error: download failed for %ASSET% from all sources 1>&2
+echo hint: set HTTPS_PROXY for a proxy, or DBPOD_DOWNLOAD_BASE to pin a mirror 1>&2
+goto cleanup_fail
+
+:dl_ok
+rem --- verify checksum (from the source that served the binary) -------------
+call :make_url "%WIN_BASE%" "%WIN_GH%" checksums.txt
 set "WANT="
 set /a TRY=0
 :dl_sum
 set /a TRY+=1
-curl -fsSL "%BASE%/checksums.txt" -o "%TMPDIR%\checksums.txt"
+curl -fsSL --connect-timeout 10 --max-time 30 "%URL%" -o "%TMPDIR%\checksums.txt"
 if not errorlevel 1 goto dl_sum_ok
 if %TRY% lss 3 (
   ping -n 3 127.0.0.1 >nul
@@ -143,11 +147,25 @@ if not exist "%TMPDIR%\%BIN_NAME%" (
 
 if not defined INSTALL_DIR set "INSTALL_DIR=%USERPROFILE%\.local\bin"
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+rem Windows refuses to overwrite a running exe but does allow renaming it:
+rem park the old binary aside, drop the new one in place, then remove the old
+rem copy (if an older dbpod process still locks it, the .old lingers until
+rem the next install cleans it up).
+if exist "%INSTALL_DIR%\%BIN_NAME%.old" del /f /q "%INSTALL_DIR%\%BIN_NAME%.old" 2>nul
+if exist "%INSTALL_DIR%\%BIN_NAME%" (
+  echo info: replacing existing %INSTALL_DIR%\%BIN_NAME%
+  ren "%INSTALL_DIR%\%BIN_NAME%" "%BIN_NAME%.old" 2>nul
+  if exist "%INSTALL_DIR%\%BIN_NAME%" (
+    echo error: cannot replace %INSTALL_DIR%\%BIN_NAME% - is a running dbpod.exe locking it? 1>&2
+    goto cleanup_fail
+  )
+)
 copy /y "%TMPDIR%\%BIN_NAME%" "%INSTALL_DIR%\%BIN_NAME%" >nul
 if errorlevel 1 (
   echo error: cannot write %INSTALL_DIR%\%BIN_NAME% - is a running dbpod.exe locking the file? 1>&2
   goto cleanup_fail
 )
+if exist "%INSTALL_DIR%\%BIN_NAME%.old" del /f /q "%INSTALL_DIR%\%BIN_NAME%.old" 2>nul
 rd /s /q "%TMPDIR%" 2>nul
 
 rem --- install requested engines ---------------------------------------------
@@ -197,4 +215,51 @@ echo environment:
 echo   DBPOD_VERSION        same as --version
 echo   DBPOD_ENGINES        comma/space-separated engine refs, same as --engine
 echo   DBPOD_INSTALL_DIR    same as --install-dir
+echo   DBPOD_DOWNLOAD_BASE  replace the GitHub download base with a mirror URL
 exit /b 0
+
+:make_url
+rem %1 = base, %2 = layout (1 = GitHub, 0 = dl.dbpod.io), %3 = file; sets URL
+if "%~2"=="1" (
+  if "%VERSION%"=="latest" ( set "URL=%~1/latest/download/%~3" ) else set "URL=%~1/download/%VERSION%/%~3"
+) else (
+  if "%VERSION%"=="latest" ( set "URL=%~1/latest/%~3" ) else set "URL=%~1/%VERSION%/%~3"
+)
+exit /b 0
+
+:try_source
+rem %1 = base, %2 = layout, %3 = file, %4 = output path.
+rem Downloads with retries (404 fails fast - the mirror will not have the
+rem file either); on success sets WIN_BASE/WIN_GH so checksums.txt comes from
+rem the same origin the binary came from. A soft-404 host answers 200 with an
+rem HTML page - only accept real payload content types.
+call :make_url "%~1" "%~2" "%~3"
+set /a TS_TRY=0
+:ts_retry
+set /a TS_TRY+=1
+set "TS_CODE="
+set "TS_CT="
+for /f "tokens=1,2" %%c in ('curl -sL --connect-timeout 10 --max-time 300 -o "%~4" -w "%%{http_code} %%{content_type}" "%URL%"') do (
+  set "TS_CODE=%%c"
+  set "TS_CT=%%d"
+)
+if not "%TS_CODE%"=="200" goto ts_fail
+if "%TS_CT:~0,4%"=="text" goto ts_soft404
+set "WIN_BASE=%~1"
+set "WIN_GH=%~2"
+exit /b 0
+:ts_soft404
+echo info: %~1 answered with an HTML page instead of %~3 - skipping this source ...
+exit /b 1
+:ts_fail
+if "%TS_CODE%"=="404" (
+  echo info: not found on %~1, trying next source ...
+  exit /b 1
+)
+if %TS_TRY% lss 5 (
+  echo info: download from %~1 failed, retrying ...
+  ping -n 3 127.0.0.1 >nul
+  goto ts_retry
+)
+echo info: source %~1 unavailable, trying next source ...
+exit /b 1

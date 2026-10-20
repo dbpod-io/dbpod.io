@@ -14,8 +14,9 @@
 # Env-var equivalents (handy when piping):
 #   DBPOD_VERSION=v0.1.0 DBPOD_ENGINES="mysql@8.0 postgres@17" sh
 #
-# Downloads the dbpod binary for your platform from GitHub Releases, verifies
-# it against the release checksums, and installs it into ~/.local/bin
+# Downloads the dbpod binary for your platform from GitHub Releases (with
+# automatic fallback to the dl.dbpod.io mirror when github.com is unreachable),
+# verifies it against the release checksums, and installs it into ~/.local/bin
 # (override with DBPOD_INSTALL_DIR or --install-dir).
 #
 # Asset naming expected from the release pipeline (dbpod-io/dbpod):
@@ -26,7 +27,40 @@ set -eu
 
 REPO="dbpod-io/dbpod"
 BIN_NAME="dbpod"
-RELEASES="https://github.com/${REPO}/releases"
+GITHUB_RELEASES="https://github.com/${REPO}/releases"
+MIRROR="https://dl.dbpod.io"
+
+# Download sources, tried in order until one serves the asset; the binary and
+# its checksums always come from the same origin. The download attempt itself
+# is the network probe - no separate reachability check, because release
+# assets are served from a different CDN than the github.com page anyway.
+# Layouts: g = GitHub (.../latest/download/<f>, .../download/<tag>/<f>),
+#          d = dl.dbpod.io (.../latest/<f>, .../<tag>/<f>).
+# DBPOD_DOWNLOAD_BASE pins one g-layout source (e.g. a release proxy) and
+# disables the fallback.
+if [ -n "${DBPOD_DOWNLOAD_BASE:-}" ]; then
+  SOURCES="${DBPOD_DOWNLOAD_BASE} g"
+else
+  SOURCES="${GITHUB_RELEASES} g
+${MIRROR} d"
+fi
+
+src_file_url() {
+  # $1 = base, $2 = layout, $3 = file
+  if [ "$2" = g ]; then
+    if [ "$DBPOD_VERSION" = "latest" ]; then
+      printf '%s/latest/download/%s\n' "$1" "$3"
+    else
+      printf '%s/download/%s/%s\n' "$1" "$DBPOD_VERSION" "$3"
+    fi
+  else
+    if [ "$DBPOD_VERSION" = "latest" ]; then
+      printf '%s/latest/%s\n' "$1" "$3"
+    else
+      printf '%s/%s/%s\n' "$1" "$DBPOD_VERSION" "$3"
+    fi
+  fi
+}
 
 log() { printf 'info: %s\n' "$1"; }
 err() { printf 'error: %s\n' "$1" >&2; exit 1; }
@@ -47,6 +81,7 @@ environment:
   DBPOD_VERSION        same as --version
   DBPOD_ENGINES        comma/space-separated engine refs, same as --engine
   DBPOD_INSTALL_DIR    same as --install-dir
+  DBPOD_DOWNLOAD_BASE  replace the GitHub download base with a mirror URL
 EOF
 }
 
@@ -111,18 +146,12 @@ esac
 
 asset="dbpod-${os}-${arch}.tar.gz"
 
-if [ "$DBPOD_VERSION" = "latest" ]; then
-  base_url="${RELEASES}/latest/download"
-else
-  base_url="${RELEASES}/download/${DBPOD_VERSION}"
-fi
-
 # --- download helpers ------------------------------------------------------
 if command -v curl >/dev/null 2>&1; then
   # retries cover transient network errors; 404s still fail fast
-  fetch() { curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused "$1" -o "$2"; }
+  fetch() { curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 10 --max-time 300 "$1" -o "$2"; }
 elif command -v wget >/dev/null 2>&1; then
-  fetch() { wget -qO "$2" --tries=3 --waitretry=2 "$1"; }
+  fetch() { wget -qO "$2" --tries=3 --waitretry=2 -T 30 "$1"; }
 else
   err "need curl or wget to download"
 fi
@@ -141,11 +170,34 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 log "downloading ${asset} ..."
-fetch "${base_url}/${asset}" "${tmp_dir}/${asset}" || err "download failed: ${base_url}/${asset} (if you need a proxy, set HTTPS_PROXY)"
+src_base=""
+src_layout=""
+while read -r base layout; do
+  [ -n "$base" ] || continue
+  if fetch "$(src_file_url "$base" "$layout" "$asset")" "${tmp_dir}/${asset}"; then
+    src_base="$base"
+    src_layout="$layout"
+    break
+  fi
+  log "source ${base} unavailable, trying next source ..."
+done <<EOF
+$SOURCES
+EOF
+if [ -z "$src_base" ]; then
+  err "download failed for ${asset} from all sources (set HTTPS_PROXY for a proxy, or DBPOD_DOWNLOAD_BASE to pin a mirror)"
+fi
+
+# reject soft-404 hosts that answer with an HTML page: a real asset starts
+# with the zip (PK) or gzip magic bytes
+magic="$(head -c 4 "${tmp_dir}/${asset}" | od -An -tx1 | tr -d ' \n')"
+case "$magic" in
+  504b0304 | 1f8b*) ;;
+  *) err "${asset} from ${src_base} is not a binary archive - the source served something else (misconfigured mirror?)" ;;
+esac
 
 # --- verify checksum -------------------------------------------------------
 got=""
-if fetch "${base_url}/checksums.txt" "${tmp_dir}/checksums.txt" 2>/dev/null; then
+if fetch "$(src_file_url "$src_base" "$src_layout" checksums.txt)" "${tmp_dir}/checksums.txt" 2>/dev/null; then
   asset_pat="$(printf '%s' "$asset" | sed 's/\./\\./g')"
   want="$(grep -E "^[0-9a-fA-F]{64}[[:space:]]+${asset_pat}[[:space:]]*$" "${tmp_dir}/checksums.txt" | awk '{print $1}')"
   if [ -z "$want" ]; then
@@ -169,6 +221,13 @@ install_dir="${DBPOD_INSTALL_DIR:-${HOME}/.local/bin}"
 mkdir -p "$install_dir"
 
 if [ -f "${tmp_dir}/${BIN_NAME}" ]; then
+  # replacing a running binary is fine on unix, but an mv across a filesystem
+  # boundary (e.g. tmpfs /tmp -> disk home) would truncate it in place and hit
+  # ETXTBSY - unlink the destination first so the move is always a fresh file
+  if [ -e "${install_dir}/${BIN_NAME}" ]; then
+    log "replacing existing ${install_dir}/${BIN_NAME}"
+    rm -f "${install_dir}/${BIN_NAME}"
+  fi
   mv "${tmp_dir}/${BIN_NAME}" "${install_dir}/${BIN_NAME}"
 else
   err "archive did not contain a ${BIN_NAME} binary — asset layout mismatch?"
